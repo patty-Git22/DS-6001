@@ -1,0 +1,190 @@
+import numpy as np
+import pandas as pd
+
+# Plotly modules/methods/settings
+import plotly.graph_objects as go
+import plotly.express as px
+import plotly.figure_factory as ff
+from plotly.offline import init_notebook_mode
+init_notebook_mode(connected=True) # enables display of plotly figures in HTML/PDF notebooks
+
+# Dash modules/methods/settings
+import dash
+from dash import dcc
+from dash import html
+from dash.dependencies import Input, Output
+external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css'] # Controls default visual appearance of the dashboard
+
+%%capture
+gss = pd.read_csv("https://github.com/jkropko/DS-6001/raw/master/localdata/gss2018.csv",
+                 encoding='cp1252', na_values=['IAP','IAP,DK,NA,uncodeable', 'NOT SURE',
+                                               'DK', 'IAP, DK, NA, uncodeable', '.a', "CAN'T CHOOSE"])
+mycols = ['id', 'wtss', 'sex', 'educ', 'region', 'age', 'coninc',
+          'prestg10', 'mapres10', 'papres10', 'sei10', 'satjob',
+          'fechld', 'fefam', 'fepol', 'fepresch', 'meovrwrk'] 
+gss_clean = gss[mycols]
+gss_clean = gss_clean.rename({'wtss':'weight', 
+                              'educ':'education', 
+                              'coninc':'income', 
+                              'prestg10':'job_prestige',
+                              'mapres10':'mother_job_prestige', 
+                              'papres10':'father_job_prestige', 
+                              'sei10':'socioeconomic_index', 
+                              'fechld':'relationship', 
+                              'fefam':'male_breadwinner', 
+                              'fehire':'hire_women', 
+                              'fejobaff':'preference_hire_women', 
+                              'fepol':'men_bettersuited', 
+                              'fepresch':'child_suffer',
+                              'meovrwrk':'men_overwork'},axis=1)
+gss_clean.age = gss_clean.age.replace({'89 or older':'89'})
+gss_clean.age = gss_clean.age.astype('float')
+
+
+markdown_text = """
+"https://www.pewresearch.org/short-reads/2025/03/04/gender-pay-gap-in-us-has-narrowed-slightly-over-2-decades/"
+"https://www.pewresearch.org/social-trends/2023/03/01/the-enduring-grip-of-the-gender-pay-gap/"
+According to the Pew Research Center, the the difference in wage gap between men and women has slightly narrowed over the last two decades with women on average earning 5 cents less than every dollar
+earned by a man in the dame age group. They sum up potential reasons for the wage gap due to women being overrepresented in lower-paying jobs and being treated differently by employers. They reference the
+2022 Pew Research Center survey that found that a smaller share of the wage gap points to women making different choices of how to balce work and family responsibilities. The Pew study also found that
+both men and women are about equally likely to say they feel pressure to support their families financially and be successful in their careers. However women, particularly mothers, are more likely
+to say they feel a great deal of pressure to be involved in their children's lives and focusing on the responsibilities at home. Pew Research Center also found that the gender gap in workplave activity
+is greater among adults who have children at home. For example, among parents ages 35 to 55, 94% of fathers are active in the workforce, compared with 75% of mothers – there is a gap of 6 points. 
+
+"""
+
+gss_table = gss_clean.groupby('sex').agg({
+    'income': 'mean',
+    'job_prestige': 'mean',
+    'socioeconomic_index': 'mean',
+    'education': 'mean'
+}).reset_index()
+
+gss_table.columns = ['sex', 'mean_income', 'mean_job_prestige', 'mean_socioeconomic_index', 'mean_education']
+gss_table.round(2)
+gss_table_figure = ff.create_table(gss_table, index=False)
+gss_table_figure.show()
+
+figure3 = px.bar(gss_clean, x='male_breadwinner', color='sex', barmode='group',
+                labels={
+                    'male_breadwinner':'Level of Agreement',
+                    'sex':'Gender',
+                    'count':'Count'
+                },
+                category_orders={'male_breadwinner': sorted(gss_clean['male_breadwinner'].dropna().unique())}
+                )
+figure3.update_layout(
+    xaxis_title='Level of Agreement',
+    yaxis_title='Number of Respondents',
+    legend_title='Gender'
+)
+figure3.show()
+
+df_scatter = gss_clean[['job_prestige', 'income', 'sex', 'education', 'socioeconomic_index']].dropna()
+
+
+fig4 = px.scatter(df_scatter, x='job_prestige', y='income', color='sex',
+                 trendline='ols', trendline_scope='group',
+                 height=800, width=800,
+                 hover_data=['education', 'socioeconomic_index'],
+                 labels={
+                        'job_prestige': 'Occupational Prestige',
+                        'income': 'Income',
+                        'sex': 'Gender'}
+                        )
+
+fig4.update_layout(
+    xaxis_title='Occupational Prestige',
+    yaxis_title='Income',
+    legend_title='Gender')
+fig4.show()
+
+fig_income = px.box(df_scatter, x='sex', y='income', color='sex',
+                    height=800, width=800,
+                    hover_data=['income', 'job_prestige'],
+                    labels={
+                        'income': 'Income',
+                        'sex': 'Gender'}
+                    )
+
+fig_income.update_layout(
+    xaxis_title='Gender',
+    yaxis_title='Income',
+    legend_title='Gender')
+
+fig_income.show()
+
+fig_job_prestige = px.box(df_scatter, x='sex', y='job_prestige', color='sex',
+                          height=800, width=800,
+                          hover_data=['income', 'job_prestige'],
+                          labels={
+                                'job_prestige': 'Occupational Prestige',
+                                'sex': 'Gender'}   
+                            )
+
+fig_job_prestige.update_layout(
+    xaxis_title='Gender',
+    yaxis_title='Occupational Prestige',
+    legend_title='Gender')
+
+fig_job_prestige.show()
+
+gss_new = gss_clean[['income', 'sex', 'job_prestige']].copy()
+gss_new['prestige_category'] = pd.cut(gss_new['job_prestige'], bins=6, labels=False, include_lowest=True).astype(str)
+gss_new.dropna
+
+fig6 = px.box(gss_new, x='sex', y='income', color='sex',
+             facet_col='prestige_category', facet_col_wrap=2,
+             color_discrete_map={'male':'blue', 'female':'red'},
+             height=1250, width=800,
+             hover_data=['income', 'job_prestige'],
+             labels={
+                 'income': 'Income',
+                 'sex': 'Gender',
+                 'prestige_category': 'Occupational Prestige Category'}
+                 )
+
+fig6.update_layout(
+    xaxis_title='Gender',
+    yaxis_title='Income',
+    legend_title='Gender')
+
+fig6.show()
+
+app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+
+app.layout = html.Div([
+    html.H1("Gender, Work, and Attitudes — GSS Dashboard"),
+    
+    dcc.Tabs([
+        dcc.Tab(label='Background & Context', children=[
+            dcc.Markdown(markdown_text)
+        ]),
+    
+        dcc.Tab(label='Summary Table', children=[
+            dcc.Graph(figure=gss_table_figure)
+        ]),
+
+        dcc.Tab(label="Attitudes Toward Male Breadwinner Model", children=[
+            dcc.Graph(figure=figure3)
+        ]),
+
+        dcc.Tab(label="Income vs. Job Prestige by Gender", children=[
+            dcc.Graph(figure=fig4)
+        ]),
+        
+        dcc.Tab(label='Income & Prestige', children=[
+            html.Div([
+                dcc.Graph(figure=fig_income, style={'flex': '1', 'margin': '5px'}),
+                dcc.Graph(figure=fig_job_prestige, style={'flex': '1', 'margin': '5px'})],
+                style={'display': 'flex', 'flex-direction': 'row'})
+        ]),
+
+        dcc.Tab(label="Income Distribution by Prestige Category and Gender", children=[
+            dcc.Graph(figure=fig6)
+        ])
+    ])
+])
+
+if __name__ == '__main__':
+    app.run(debug=True, port=8050)
