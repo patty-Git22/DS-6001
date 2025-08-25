@@ -1,0 +1,392 @@
+import numpy as np
+import pandas as pd
+import sidetable
+import sqlite3
+
+url = "https://www.cdc.gov/workplace-health-promotion/media/files/2024/06/whpps_120717.csv"
+whpps = pd.read_csv(url, sep="~")
+whpps.info(verbose=True)
+
+base_columns = [
+    "Industry", "Size", "OC3", "HI1", "HI2", "HI3", "CP1", "WL6"
+]
+
+wd_columns = [col for col in whpps.columns if col.startswith("WD")]
+columns_to_keep = base_columns + wd_columns
+working_whpps = whpps[columns_to_keep].copy()
+working_whpps.head()
+
+replace_names = {
+    "OC3" : "Profit Type",
+    "HI1" : "Co-Pay Premiums",
+    "HI2" : "FT Employee Premium Amount",
+    "HI3" : "PT Health Insurance",
+    "CP1" : "Health Education Programs",
+    "WL6" : "Remote Work"
+}
+
+working_whpps.rename(columns=replace_names, inplace=True)
+working_whpps.head()
+
+whpps['Industry'].value_counts()
+industry_map = {
+    1.0 : "Agricultural, Construction, Manufacturing",
+    2.0 : "Retail and Commerce",
+    3.0 : "Hospitality, Entertainment, Arts and Recreation, Other Services",
+    4.0 : "Admin Support, Real Estate, Financial and Professional Services",
+    5.0 : "Education, Healthcare, Social Services",
+    6.0 : "Public Administration",
+    7.0 : "Hospital Worksites"
+}
+
+working_whpps["Industry"] = working_whpps["Industry"].map(industry_map)
+working_whpps
+
+def size_recode(size):
+    if size in [1.0, 2.0, 3.0]:
+        return "Small"
+    elif size in [4.0, 5.0]:
+        return "Medium"
+    elif size in [6.0, 7.0, 8.0]:
+        return "Large"
+    else:
+        return np.nan
+ 
+working_whpps["Size"] = working_whpps["Size"].apply(size_recode)
+working_whpps
+
+label_maps = {   
+    "Profit Type": {
+        1: "For-profit, public",
+        2: "For-profit, private",
+        3: "Non-profit",
+        4: "State or local government",
+        5: "Federal government",
+        6: "Other",
+        97: "Don't know",
+        98: "Refused",
+        99: "Blank"
+    },
+
+    "Co-Pay Premiums": {
+        1: "Full Coverage Offered",
+        2: "Partial Coverage Offered",
+        3: "No Coverage Offered",
+        97: "Don't know",
+        98: "Refused",
+        99: "Blank"
+    },
+
+    "FT Employee Premium Amount": {
+        1: "Larger proportion",
+        2: "Smaller proportion",
+        3: "Roughly Proportional",
+        96:"Legitimate Skip",
+        97: "Don't know",
+        98: "Refused",
+        99: "Blank"
+    },
+
+    "PT Health Insurance": {
+        1: "Yes",
+        2: "No",
+        97: "Don't know",
+        98: "Refused",
+        99: "Blank"
+    },
+
+    "Health Education Programs": {
+        1: "Yes",
+        2: "No",
+        97: "Don't know",
+        98: "Refused"
+    },
+
+    "Remote Work": {
+        1: "Yes",
+        2: "No",
+        97: "Don't know",
+        98: "Refused",
+        99: "Blank"
+    }
+}
+
+for col, mapping in label_maps.items():
+    working_whpps[col] = working_whpps[col].map(mapping)
+
+working_whpps
+
+wd_columns = [col for col in working_whpps.columns if col.startswith("WD")]
+working_whpps[wd_columns] = working_whpps[wd_columns].replace({997: "Don't know", 998: "Refused", 999: "Blank/Invalid"})
+
+working_whpps.sort_values(by=["Industry", "Size", "WD1_1"],ascending=[True, True, False])
+working_whpps
+working_whpps = working_whpps[~working_whpps["Industry"].isna()]
+working_whpps
+
+working_whpps.loc[:, "WD2"] = pd.to_numeric(working_whpps["WD2"], errors="coerce")
+def gender_balance(gender_pct):
+    if 0 <= gender_pct <= 35:
+        return "Mostly men"
+    elif 35 < gender_pct <= 65:
+        return "Balanced"
+    elif gender_pct > 65:
+        return "Mostly women"
+    else:
+        return "Unknown"
+
+working_whpps.loc[:, "Gender Balance"] = working_whpps["WD2"].apply(gender_balance)
+working_whpps
+
+object_coluns = working_whpps.select_dtypes(include="object").columns
+working_whpps[object_coluns] = working_whpps[object_coluns].astype("category")
+working_whpps.info(verbose=True)
+
+small_workplace = working_whpps[(working_whpps["Size"] == "Small") & (working_whpps["Remote Work"] == "Yes")]
+output = small_workplace.stb.freq(["Industry", "Co-Pay Premiums"], cum_cols=True)
+output
+
+whpps_connect = sqlite3.connect("whpps.db")
+pd.read_sql("SELECT * FROM working_whpps", whpps_connect)
+
+pandas_replica = working_whpps[
+    (working_whpps["Industry"] == "Hospital Worksites") & 
+    (working_whpps["FT Employee Premium Amount"] == "Smaller proportion")]
+[["Size", "Profit Type", "Co-Pay Premiums", "PT Health Insurance"]]
+
+pandas_replica[["Size", "Profit Type", "Co-Pay Premiums", "FT Employee Premium Amount", "PT Health Insurance"]]
+
+working_whpps["WD2"] = pd.to_numeric(working_whpps["WD2"], errors="coerce")
+working_whpps["WD1_1"] = pd.to_numeric(working_whpps["WD1_1"], errors="coerce")
+working_whpps["WD1_2"] = pd.to_numeric(working_whpps["WD1_2"], errors="coerce")
+pandas_replica = working_whpps.groupby("Industry").agg(female_pct = ("WD2", "mean"), under30_pct = ("WD1_1", "mean"), over60_pct = ("WD1_2", "mean"))
+pandas_replica.sort_values("female_pct", ascending=False)
+
+pandas_replica = working_whpps.groupby(["Gender Balance", "Co-Pay Premiums"]).size().reset_index(name="Count")
+invalid_labels = ["Blank", "Don't know", "Refused", "Unknown"]
+pandas_replica = pandas_replica[
+    ~pandas_replica["Gender Balance"].isin(invalid_labels) &
+    ~pandas_replica["Co-Pay Premiums"].isin(invalid_labels)
+]
+
+pandas_replica
+
+# Break
+
+import numpy as np
+import pandas as pd
+import requests
+import os
+import io
+import zipfile
+
+'''
+url = 'https://databank.worldbank.org/data/download/ESG_CSV.zip'
+r = requests.get(url)
+z = zipfile.ZipFile(io.BytesIO(r.content))
+z.extractall()
+'''
+url = 'https://v-dem.net/media/datasets/V-Dem-CY-FullOthers-v15_csv.zip'
+r = requests.get(url)
+z = zipfile.ZipFile(io.BytesIO(r.content))
+z.extractall()
+
+vdem = pd.read_csv('V-Dem-CY-Full+Others-v15.csv', low_memory=False)
+wb = pd.read_csv('ESGCSV.csv')
+vdem = vdem[['country_text_id', 'country_name', 'year', 'v2x_polyarchy', 'v2peedueq']]
+vdem = vdem.query('1960 <= year <= 2023')
+vdem.head()
+
+vdem = vdem.rename({
+    'country_text_id': 'country_code',
+    'country_name': 'country_name_vdem',
+    'v2x_polyarchy': 'democracy',
+    'v2peedueq': 'educational_equality'
+}, axis=1)
+vdem = vdem.sort_values(['country_code', 'year'], ascending=[True, True])
+vdem.head()
+
+cols_keep = [col for col in wb.columns
+             if col in ['Country Code',
+                        'Country Name',
+                        'Indicator Code'] 
+             or col.startswith(('19', '20'))]
+wb = wb[cols_keep]
+wb = wb.rename({
+    'Country Code': 'country_code',
+    'Country Name': 'country_name_wb',
+    'Indicator Code': 'feature'
+}, axis=1)
+wb.head(10)
+
+noncountries = ["Arab World", "Central Europe and the Baltics",
+                "Caribbean small states",
+                "East Asia & Pacific (excluding high income)",
+                "Early-demographic dividend","East Asia & Pacific",
+                "Europe & Central Asia (excluding high income)",
+                "Europe & Central Asia", "Euro area",
+                "European Union","Fragile and conflict affected situations",
+                "High income",
+                "Heavily indebted poor countries (HIPC)","IBRD only",
+                "IDA & IBRD total",
+                "IDA total","IDA blend","IDA only",
+                "Latin America & Caribbean (excluding high income)",
+                "Latin America & Caribbean",
+                "Least developed countries: UN classification",
+                "Low income","Lower middle income","Low & middle income",
+                "Late-demographic dividend","Middle East & North Africa",
+                "Middle income",
+                "Middle East & North Africa (excluding high income)",
+                "North America","OECD members",
+                "Other small states","Pre-demographic dividend",
+                "Pacific island small states",
+                "Post-demographic dividend",
+                "Sub-Saharan Africa (excluding high income)",
+                "Sub-Saharan Africa",
+                "Small states","East Asia & Pacific (IDA & IBRD)",
+                "Europe & Central Asia (IDA & IBRD)",
+                "Latin America & Caribbean (IDA & IBRD)",
+                "Middle East & North Africa (IDA & IBRD)","South Asia",
+                "South Asia (IDA & IBRD)",
+                "Sub-Saharan Africa (IDA & IBRD)",
+                "Upper middle income", "World"]
+wb = wb.query('country_name_wb not in @noncountries')
+wb.head(10)  
+
+replace_map = {
+  "AG.LND.AGRI.ZS": "agricultural_land",
+  "AG.LND.FRST.ZS": "forest_area",
+  "AG.PRD.FOOD.XD": "food_production_index",
+  "CC.EST": "control_of_corruption",
+  "EG.CFT.ACCS.ZS": "access_to_clean_fuels_and_technologies_for_cooking",
+  "EG.EGY.PRIM.PP.KD": "energy_intensity_level_of_primary_energy",
+  "EG.ELC.ACCS.ZS": "access_to_electricity",
+  "EG.ELC.COAL.ZS": "electricity_production_from_coal_sources",
+  "EG.ELC.RNEW.ZS": "renewable_electricity_output",
+  "EG.FEC.RNEW.ZS": "renewable_energy_consumption",
+  "EG.IMP.CONS.ZS": "energy_imports",
+  "EG.USE.COMM.FO.ZS": "fossil_fuel_energy_consumption",
+  "EG.USE.PCAP.KG.OE": "energy_use",
+  "EN.ATM.CO2E.PC": "co2_emissions",
+  "EN.ATM.METH.PC": "methane_emissions",
+  "EN.ATM.NOXE.PC": "nitrous_oxide_emissions",
+  "EN.ATM.PM25.MC.M3": "pm2_5_air_pollution",
+  "EN.CLC.CDDY.XD": "cooling_degree_days",
+  "EN.CLC.GHGR.MT.CE": "ghg_net_emissions",
+  "EN.CLC.HEAT.XD": "heat_index_35",
+  "EN.CLC.MDAT.ZS": "droughts",
+  "EN.CLC.PRCP.XD": "maximum_5-day_rainfall",
+  "EN.CLC.SPEI.XD": "mean_drought_index",
+  "EN.MAM.THRD.NO": "mammal_species",
+  "EN.POP.DNST": "population_density",
+  "ER.H2O.FWTL.ZS": "annual_freshwater_withdrawals",
+  "ER.PTD.TOTL.ZS": "terrestrial_and_marine_protected_areas",
+  "GB.XPD.RSDV.GD.ZS": "research_and_development_expenditure",
+  "GE.EST": "government_effectiveness",
+  "IC.BUS.EASE.XQ": "ease_of_doing_business_rank",
+  "IC.LGL.CRED.XQ": "strength_of_legal_rights_index",
+  "IP.JRN.ARTC.SC": "scientific_and_technical_journal_articles",
+  "IP.PAT.RESD": "patent_applications",
+  "IT.NET.USER.ZS": "individuals_using_the_internet",
+  "NV.AGR.TOTL.ZS": "agriculture",
+  "NY.ADJ.DFOR.GN.ZS": "net_forest_depletion",
+  "NY.ADJ.DRES.GN.ZS": "natural_resources_depletion",
+  "NY.GDP.MKTP.KD.ZG": "gdp_growth",
+  "PV.EST": "political_stability_and_absence_of_violence",
+  "RL.EST": "rule_of_law",
+  "RQ.EST": "regulatory_quality",
+  "SE.ADT.LITR.ZS": "literacy_rate",
+  "SE.ENR.PRSC.FM.ZS": "gross_school_enrollment",
+  "SE.PRM.ENRR": "primary_school_enrollment",
+  "SE.XPD.TOTL.GB.ZS": "government_expenditure_on_education",
+  "SG.GEN.PARL.ZS": "proportion_of_seats_held_by_women_in_national_parliaments",
+  "SH.DTH.COMM.ZS": "cause_of_death",
+  "SH.DYN.MORT": "mortality_rate",
+  "SH.H2O.SMDW.ZS": "people_using_safely_managed_drinking_water_services",
+  "SH.MED.BEDS.ZS": "hospital_beds",
+  "SH.STA.OWAD.ZS": "prevalence_of_overweight",
+  "SH.STA.SMSS.ZS": "people_using_safely_managed_sanitation_services",
+  "SI.DST.FRST.20": "income_share_held_by_lowest_20pct",
+  "SI.POV.GINI": "gini_index",
+  "SI.POV.NAHC": "poverty_headcount_ratio_at_national_poverty_lines",
+  "SI.SPR.PCAP.ZG": "annualized_average_growth_rate_in_per_capita_real_survey_mean_consumption_or_income",
+  "SL.TLF.0714.ZS": "children_in_employment",
+  "SL.TLF.ACTI.ZS": "labor_force_participation_rate",
+  "SL.TLF.CACT.FM.ZS": "ratio_of_female_to_male_labor_force_participation_rate",
+  "SL.UEM.TOTL.ZS": "unemployment",
+  "SM.POP.NETM": "net_migration",
+  "SN.ITK.DEFC.ZS": "prevalence_of_undernourishment",
+  "SP.DYN.LE00.IN": "life_expectancy_at_birth",
+  "SP.DYN.TFRT.IN": "fertility_rate",
+  "SP.POP.65UP.TO.ZS": "population_ages_65_and_above",
+  "SP.UWT.TFRT": "unmet_need_for_contraception",
+  "VA.EST": "voice_and_accountability",
+  "EN.CLC.CSTP.ZS": "coastal_protection",
+  "SD.ESR.PERF.XQ": "economic_and_social_rights_performance_score",
+  "EN.CLC.HDDY.XD": "heating_degree_days",
+  "EN.LND.LTMP.DC": "land_surface_temperature",
+  "ER.H2O.FWST.ZS": "freshwater_withdrawal",
+  "EN.H2O.BDYS.ZS": "water_quality",
+  "AG.LND.FRLS.HA": "tree_cover_loss",
+}
+wb['feature'] = wb['feature'].replace(replace_map)
+wb.head(10)
+
+wb = pd.melt(wb,
+             id_vars=['country_name_wb',
+                      'country_code',
+                      'feature'],
+             var_name='year',
+             value_name='value')
+
+wb = wb.pivot_table(
+    index=['country_code', 'country_name_wb', 'year'],
+    columns='feature',
+    values='value'
+).reset_index()
+wb['year'] = wb['year'].astype(int)
+
+merged_data = pd.merge(wb, vdem,
+                       on =['country_code', 'year'],
+                       how ='outer',
+                       indicator = 'matched',
+                       validate = 'one_to_one')
+merged_data
+
+wb_only = merged_data.query('matched == "left_only"')
+wb_summary = wb_only.groupby([
+    'country_code',
+    'country_name_wb'])['year'].agg(['min', 'max']).reset_index()
+wb_summary
+
+vdem_only = merged_data.query('matched == "right_only"')
+vdem_summary = vdem_only.groupby([
+    'country_code',
+    'country_name_vdem'])['year'].agg(['min', 'max']).reset_index()
+vdem_summary.sort_values('country_name_vdem', ascending=True)
+vdem_summary
+
+merged_df = pd.merge(wb, vdem, on=["country_code", "year"], how="inner")
+
+merged_df_dem = (
+    merged_df.groupby(['country_code', 'country_name_vdem'])['democracy']
+    .mean()
+    .reset_index(name='average_democracy')
+)
+merged_df_dem.sort_values('average_democracy', ascending=False).head(10)
+merged_df_dem.sort_values('average_democracy', ascending=True).head(10)
+
+bins = [-4, -2, -0.5, 0.5, 1.5, 4]
+labels = ["extremely unequal", "very unequal", "somewhat unequal", "relatively equal", "equal"]
+merged_df['edu_inequality_cat'] = pd.cut(
+    merged_df['educational_equality'], 
+    bins=bins, 
+    labels=labels
+)
+edu_equality = (
+    merged_df
+    .groupby('edu_inequality_cat')[['gini_index', 'poverty_headcount_ratio_at_national_poverty_lines']]
+    .mean()
+    .reset_index()
+)
+edu_equality
