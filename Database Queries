@@ -1,0 +1,299 @@
+# 1. Load needed environment variables
+dotenv.load_dotenv()
+
+POSTGRES_PASSWORD = os.getenv('PASSWORD')
+MONGO_INITDB_ROOT_USERNAME = os.getenv('PASSWORD')
+MONGO_INITDB_ROOT_PASSWORD = os.getenv('PASSWORD')
+MYSQL_ROOT_PASSWORD = os.getenv('PASSWORD')
+
+# 3. Test PostgreSQL
+dbserver = psycopg.connect(
+    user='postgres', 
+    password=POSTGRES_PASSWORD, 
+    host='localhost',
+    port = '5432'
+)
+dbserver.autocommit = True
+
+# 4. Test MongoDB
+myclient = pymongo.MongoClient(f"mongodb://{MONGO_INITDB_ROOT_USERNAME}:{MONGO_INITDB_ROOT_PASSWORD}@localhost:27017/")
+myclient.list_databases()
+
+shakespeare_postgres = psycopg.connect(
+    user = 'postgres',
+    password = PASSWORD,
+    host = 'localhost',
+    port = '5432',
+    dbname = 'shakespeare',
+)
+
+
+engine = create_engine(f"postgresql+psycopg://postgres:{POSTGRES_PASSWORD}@localhost:5432/shakespeare")
+
+query = """
+SELECT *
+FROM works
+"""
+
+shakespeare_df = pd.read_sql_query(query, con=engine)
+print(shakespeare_df)
+
+engine.dispose()
+
+query = """
+SELECT 
+    title, 
+    date AS year
+FROM works;
+"""
+
+df = pd.read_sql_query(query, con=engine)
+print(df)
+
+query = """
+SELECT 
+    title, 
+    date AS year,
+    CASE
+        WHEN date < 1600 THEN 'early'
+        WHEN date BETWEEN 1600 AND 1607 THEN 'middle'
+        WHEN date > 1607 THEN 'late'
+    END AS era
+FROM works;
+"""
+
+df = pd.read_sql_query(query, con=engine)
+print(df)
+
+query = """
+SELECT 
+    CASE
+        WHEN date < 1600 THEN 'early'
+        WHEN date BETWEEN 1600 AND 1607 THEN 'middle'
+        WHEN date > 1607 THEN 'late'
+    END AS era,
+    AVG(totalwords) AS average_total_words
+FROM works
+GROUP BY era;
+"""
+
+df = pd.read_sql_query(query, con=engine)
+print(df)
+
+query = """
+SELECT *
+FROM works
+INNER JOIN paragraphs
+USING (workid);
+"""
+
+df = pd.read_sql_query(query, con=engine)
+print(df.head())
+
+query = """
+SELECT 
+    title,
+    plaintext,
+    wordcount,
+    CASE
+        WHEN date < 1600 THEN 'before 1600'
+        ELSE '1600 or later'
+    END AS era
+FROM works
+INNER JOIN paragraphs
+USING (workid);
+"""
+
+df = pd.read_sql_query(query, con=engine)
+print(df.head())
+
+query = """
+SELECT 
+    CASE
+        WHEN date < 1600 THEN 'before 1600'
+        ELSE '1600 or later'
+    END AS era,
+    AVG(wordcount) AS avg_words_per_line
+FROM works
+INNER JOIN paragraphs
+USING (workid)
+GROUP BY era;
+"""
+
+df = pd.read_sql_query(query, con=engine)
+print(df)
+
+query = """
+SELECT 
+    workid,
+    plaintext,
+    CAST(
+        (
+            LOWER(plaintext) LIKE '%%bright%%' OR
+            LOWER(plaintext) LIKE '%%kinder%%' OR
+            LOWER(plaintext) LIKE '%%rapt%%' OR
+            LOWER(plaintext) LIKE '%%satisfied%%' OR
+            LOWER(plaintext) LIKE '%%success%%' OR
+            LOWER(plaintext) LIKE '%%virtues%%' OR
+            LOWER(plaintext) LIKE '%%wise%%' OR
+            LOWER(plaintext) LIKE '%%hero%%' OR
+            LOWER(plaintext) LIKE '%%love%%' OR
+            LOWER(plaintext) LIKE '%%hope%%' OR
+            LOWER(plaintext) LIKE '%%relief%%'
+        ) AS INT
+    ) AS pleasant_line
+FROM paragraphs;
+"""
+
+df = pd.read_sql_query(query, con=engine)
+print(df.head())
+
+query = """
+WITH pleasant_props AS (
+    SELECT
+        workid,
+        AVG(
+            CAST(
+                (
+                    LOWER(plaintext) LIKE '%%bright%%' OR
+                    LOWER(plaintext) LIKE '%%kinder%%' OR
+                    LOWER(plaintext) LIKE '%%rapt%%' OR
+                    LOWER(plaintext) LIKE '%%satisfied%%' OR
+                    LOWER(plaintext) LIKE '%%success%%' OR
+                    LOWER(plaintext) LIKE '%%virtues%%' OR
+                    LOWER(plaintext) LIKE '%%wise%%' OR
+                    LOWER(plaintext) LIKE '%%hero%%' OR
+                    LOWER(plaintext) LIKE '%%love%%' OR
+                    LOWER(plaintext) LIKE '%%hope%%' OR
+                    LOWER(plaintext) LIKE '%%relief%%'
+                ) AS INT
+            )
+        ) AS pleasantness_proportion
+    FROM paragraphs
+    GROUP BY workid
+)
+
+SELECT 
+    genretype,
+    AVG(pleasantness_proportion) AS avg_pleasantness_across_works
+FROM pleasant_props
+JOIN works USING (workid)
+WHERE genretype IN ('c', 't')
+GROUP BY genretype;
+"""
+
+df = pd.read_sql_query(query, con=engine)
+print(df)
+
+query = """
+SELECT 
+    p.paragraphid,
+    p.wordcount,
+    p.plaintext
+FROM paragraphs p
+JOIN characters c ON p.charid = c.charid
+WHERE c.charname = 'Hamlet'
+ORDER BY p.wordcount DESC
+LIMIT 1;
+"""
+
+hamlet_speech = pd.read_sql_query(query, con=engine)
+print(hamlet_speech['plaintext'][0])
+
+myquery_location = """
+SELECT
+    w.title,
+    COUNT(*) AS num_castle_palace_scenes
+FROM chapters c
+JOIN works w ON c.workid = w.workid
+WHERE LOWER(c.description) LIKE '%%castle%%' 
+   OR LOWER(c.description) LIKE '%%palace%%'
+GROUP BY w.title
+ORDER BY num_castle_palace_scenes DESC;
+"""
+
+castle_palace_df = pd.read_sql_query(myquery_location, con=engine)
+print(castle_palace_df)
+
+const = requests.get("const.json URL") #insert json url
+const_json = json.loads(const.text)
+pd.DataFrame.from_records(const_json)
+
+db = myclient["constitutions_db"]
+collection = db["constitutions"]
+
+collection.delete_many({})
+
+collection.insert_many(const_json)
+new_df = pd.DataFrame.from_records(const_json)
+print(new_df.sort_values("adopted", ascending=True).head())
+
+query1 = {"adopted": {"$gt": 1990}}
+projection = {"_id": 0, "country": 1, "adopted": 1, "democracy": 1}
+
+df1 = pd.DataFrame(list(collection.find(query1, projection)))
+print(df1.head())
+
+
+query2 = {
+    "$and": [
+        {"adopted": {"$gt": 1990}},
+        {"democracy": {"$lt": 0.5, "$ne": None}}
+    ]
+}
+
+df2 = pd.DataFrame(list(collection.find(query2, projection)))
+print(df2.head())
+
+
+query3 = {
+    "$or": [
+        {"adopted": {"$gt": 1990}},
+        {"democracy": {"$lt": 0.5, "$ne": None}}
+    ]
+}
+
+df3 = pd.DataFrame(list(collection.find(query3, projection)))
+print(df3.head())
+
+collection.update_one(
+    {"country": "Hungary"},
+    {"$set": {"democracy": 0.4}}
+)
+
+hungary_record = collection.find_one({"country": "Hungary"})
+
+df_hungary = pd.DataFrame([hungary_record])
+print(df_hungary)
+
+def mongo_read_query(col, q):
+    qtext = dumps(col.find(q))
+    qrec = loads(qtext)
+    qdf = pd.DataFrame.from_records(qrec)
+    return qdf
+
+collection.create_index([("text", "text")])
+
+query = {'$text': {'$search': '"freedom of speech"', '$caseSensitive': False}}
+
+df = mongo_read_query(collection, query)
+print(df[["country", "adopted", "democracy"]])
+
+search_terms = "freedom liberty legal justice rights"
+
+query = {"$text": {"$search": search_terms}}
+
+projection = {
+    "_id": 0,
+    "country": 1,
+    "adopted": 1,
+    "democracy": 1,
+    "score": {"$meta": "textScore"}
+}
+
+cursor = collection.find(query, projection).sort([("score", {"$meta": "textScore"})])
+
+results = list(cursor)
+df = pd.DataFrame(results)
+
+print(df.head(10))
